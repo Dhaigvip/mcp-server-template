@@ -1,8 +1,8 @@
 # mcp-server-template
 
-A production-shaped Model Context Protocol (MCP) server template, in both
-Python and TypeScript, with tools **auto-generated from a GraphQL schema**
-instead of hand-written one at a time.
+A production-shaped Model Context Protocol (MCP) server template, in
+Python, with tools **auto-generated from a GraphQL schema** instead of
+hand-written one at a time.
 
 ## What this is
 
@@ -16,10 +16,6 @@ contact with a real schema:
 - **Field awareness before the call** — an entity map rendered into the
   system prompt so the agent knows what fields exist *before* it calls a
   tool, instead of fetching defaults and re-fetching.
-- **Schema-drift detection** — fail loudly at build time when the upstream
-  schema changes shape, instead of failing silently at runtime.
-- **Python and TypeScript parity** — the same tool set, generated the same
-  way, in both languages.
 - **stdio and HTTP transports**, auth hook, middleware chain, tool registry.
 
 `demo-schema.graphql` at the repo root is the schema this template ships
