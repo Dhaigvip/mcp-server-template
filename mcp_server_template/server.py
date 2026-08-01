@@ -6,22 +6,31 @@ transport (stdio now, HTTP later) calls this one function to get "the app",
 so tools registered here are available regardless of which transport is
 running.
 
-Schema loading — file path only (for now):
+Schema loading — file path only:
   SCHEMA_FILE set (see .env.example) — tools generated from the file at
     startup via introspect_from_file(). No live backend needed to start.
   SCHEMA_FILE not set — no tools registered; a warning is logged.
 
   The dynamic path (fetch schema from a live backend on first request,
-  see the reference's schema_manager.py) only makes sense once there's an
-  HTTP transport to hang "first request" off of — stdio has no such
-  moment. Deferred to whenever Task 3b (HTTP transport) lands.
+  see the reference's schema_manager.py) needs an HTTP "first request"
+  moment that file-path loading doesn't — not implemented; could be added
+  later if a use case needs it.
 
 Overrides:
   mcp_server_template/definitions/overrides.json — optional, applied after
   introspection. Supports: skip (bool), description (str) per entity.
+
+Authentication (HTTP transport only — stdio is a trusted local subprocess,
+no request headers to check):
+  build_asgi_app() picks an AuthProvider from config, in order:
+    OIDC configured (OIDC_DISCOVERY_URL or OIDC_JWKS_URI) → OidcAuthProvider
+    DEV_TOKEN set, no OIDC → StaticTokenAuthProvider (dev/test only)
+    neither set → no auth at all (every request accepted) — logged loudly
+  See auth/provider.py for the AuthProvider protocol itself.
 """
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 from pathlib import Path
@@ -30,9 +39,11 @@ from fastmcp import FastMCP
 from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
 from fastmcp.server.middleware.logging import LoggingMiddleware
 
+from mcp_server_template.auth import AuthProvider, JwtValidator, OidcAuthProvider, StaticTokenAuthProvider
 from mcp_server_template.config import AppConfig
 from mcp_server_template.graphql.client import GraphQLClient
 from mcp_server_template.graphql.introspection import introspect_from_file
+from mcp_server_template.middleware.http_auth import AuthMiddleware
 from mcp_server_template.registry.entity_map import set_entity_defs
 from mcp_server_template.registry.loader import load_overrides, raw_defs_to_entity_defs
 from mcp_server_template.registry.tool_factory import register_entity_tools
@@ -72,6 +83,42 @@ def create_mcp(config: AppConfig) -> FastMCP:
     return mcp
 
 
+def build_asgi_app(config: AppConfig):
+    """Build the ASGI app for HTTP transport (uvicorn)."""
+    from starlette.middleware import Middleware
+
+    mcp = create_mcp(config)
+    auth_provider = asyncio.run(_build_auth_provider(config))
+
+    return mcp.http_app(
+        middleware=[
+            Middleware(AuthMiddleware, provider=auth_provider),
+        ]
+    )
+
+
+async def _build_auth_provider(config: AppConfig) -> AuthProvider | None:
+    """Build the AuthProvider HTTP requests get checked against, from OIDC/dev-token
+    config. None disables auth entirely — every request accepted."""
+    oidc = config.oidc
+    if oidc.discovery_url:
+        logger.info("OIDC: resolving JWKS via discovery → %s", oidc.discovery_url)
+        validator = await JwtValidator.from_discovery(oidc.discovery_url, audience=oidc.audience)
+        return OidcAuthProvider(validator)
+    if oidc.jwks_uri:
+        logger.info("OIDC: using JWKS URI directly → %s", oidc.jwks_uri)
+        validator = await JwtValidator.from_jwks_uri(oidc.jwks_uri, audience=oidc.audience)
+        return OidcAuthProvider(validator)
+    if config.server.dev_token:
+        logger.warning("OIDC not configured — using DEV_TOKEN static auth (dev/test only)")
+        return StaticTokenAuthProvider(config.server.dev_token)
+    logger.warning(
+        "Neither OIDC nor DEV_TOKEN configured — HTTP transport has NO authentication, "
+        "every request is accepted"
+    )
+    return None
+
+
 # ── Middleware ────────────────────────────────────────────────────────────────
 # FastMCP's Middleware wraps every tool call (on_call_tool) regardless of
 # transport — stdio and HTTP both go through the same chain, so it's built
@@ -79,9 +126,9 @@ def create_mcp(config: AppConfig) -> FastMCP:
 # and the chain wraps outer-to-inner in add order, so the first middleware
 # added is outermost.
 #
-# Auth is a hook point in this same chain, not implemented yet — when it
-# lands it's another Middleware subclass added here (its own on_call_tool,
-# rejecting unauthenticated calls before they reach the tool).
+# Auth is HTTP-only (see build_asgi_app/AuthMiddleware above) — it wraps the
+# ASGI app itself, not this FastMCP tool-call chain, since it needs the raw
+# HTTP request headers. stdio has no equivalent (trusted local subprocess).
 
 
 def _register_middleware(mcp: FastMCP) -> None:
