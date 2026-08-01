@@ -16,6 +16,10 @@ class GraphQLConfig:
     graphql_endpoint: str = "/graphql"
     schema_endpoint: str | None = None
     verify_ssl: bool = True  # set False for self-signed certs
+    # Static credential GraphQLClient sends as "Authorization: Bearer <token>"
+    # on every outbound call to the backend. Distinct from ServerConfig.dev_token
+    # (which authenticates *inbound* callers of this MCP server, see auth/).
+    api_token: str | None = None
 
     def __post_init__(self) -> None:
         self.base_url = self.base_url.rstrip("/")
@@ -83,6 +87,7 @@ def load_config() -> AppConfig:
             graphql_endpoint=os.environ.get("GRAPHQL_ENDPOINT", "/graphql"),
             schema_endpoint=os.environ.get("GRAPHQL_SCHEMA_ENDPOINT"),
             verify_ssl=os.environ.get("GRAPHQL_VERIFY_SSL", "true").lower() != "false",
+            api_token=os.environ.get("GRAPHQL_API_TOKEN"),
         ),
         server=ServerConfig(
             host=os.environ.get("HOST", "0.0.0.0"),
