@@ -14,7 +14,6 @@
 #   * scalar variety (String/Boolean/Int/Float/enum/ID)
 #   * a list-of-objects input      -> MutableFieldDef.item_fields / item_required
 #   * an entity intended to be hidden via overrides.json -> AuditEntry
-#
 # Every type, field and argument carries a description, because the generator
 # lifts those into tool descriptions (schema_description*) and the entity map.
 # =============================================================================
@@ -72,29 +71,29 @@ type Query {
   Projects in the current workspace.
   Only active projects are returned unless the filter explicitly asks otherwise.
   """
-  projects(filter: ProjectFilter): [Project!]!
+  projects(filter: ItemFilter): [Project!]!
 
   """
   Tasks across the workspace. Narrow with the filter rather than fetching all
   tasks and filtering client-side.
   """
-  tasks(filter: TaskFilter): [Task!]!
+  tasks(filter: ItemFilter): [Task!]!
 
   "People with access to the current workspace."
-  members(filter: MemberFilter): [Member!]!
+  members(filter: ItemFilter): [Member!]!
 
   "Labels available for tagging projects and tasks."
-  labels(filter: LabelFilter): [Label!]!
+  labels(filter: ItemFilter): [Label!]!
 
   "Delivery milestones that group tasks by target date."
-  milestones(filter: MilestoneFilter): [Milestone!]!
+  milestones(filter: ItemFilter): [Milestone!]!
 
   """
   Immutable audit trail. Present in the schema but intended to be hidden from
   the agent via definitions/overrides.json (skip: true) — exercises the
   skip path in the registry loader.
   """
-  auditEntries(filter: AuditEntryFilter): [AuditEntry!]!
+  auditEntries(filter: ItemFilter): [AuditEntry!]!
 }
 
 # -----------------------------------------------------------------------------
@@ -273,91 +272,36 @@ type AuditEntry {
 }
 
 # -----------------------------------------------------------------------------
-# Filter inputs
+# Filter input
+#
+# One filter type shared by every filterable query (not a distinct type per
+# entity) — the tool generator assumes this universal shape (see
+# tool_factory.py's _build_filter_params/_assemble_filter) rather than
+# introspecting each query's actual filter type. Not every field is
+# meaningful for every entity (e.g. `priority` doesn't apply to Member or
+# Label) — fields that don't apply to a given entity are simply unused by
+# its resolver. currentWorkspace intentionally takes no filter argument at
+# all (exercises has_filter = False).
 # -----------------------------------------------------------------------------
 
-"Narrows the projects query."
-input ProjectFilter {
-  "Return only these uids."
+"Universal filter shared by every filterable query."
+input ItemFilter {
+  "Filter by code (exact match). Only meaningful for entities that have one."
+  codes: [String!]
+  "Filter by uid (exact match)."
   uids: [ID!]
-  "Case-insensitive substring match against name."
-  nameContains: String
-  "Case-insensitive substring match against description."
-  descriptionContains: String
-  "Filter by owner."
-  ownerUid: ID
-  "Filter by priority."
-  priority: Priority
-  "Set false to include archived projects. Defaults to true."
-  activeOnly: Boolean
-  "Only projects due on or before this ISO-8601 date."
+  "Filter by name (case-insensitive prefix match)."
+  names: [String!]
+  "Filter by description (case-insensitive substring match)."
+  descriptions: [String!]
+  "Set false to include inactive/archived items. Defaults to true (active only). Pass null to include all items."
+  active: Boolean
+  "Filter by priority. Only meaningful for Project and Task."
+  priority: [Priority!]
+  "Only items due on or before this ISO-8601 date. Only meaningful for Project, Task, and Milestone."
   dueBefore: String
-}
-
-"Narrows the tasks query."
-input TaskFilter {
-  "Return only these uids."
-  uids: [ID!]
-  "Restrict to a single project."
-  projectUid: ID
-  "Restrict to a single assignee."
-  assigneeUid: ID
-  "Restrict to one or more statuses."
-  statuses: [TaskStatus!]
-  "Filter by priority."
-  priority: Priority
-  "Case-insensitive substring match against title."
-  titleContains: String
-  "Set false to include archived tasks. Defaults to true."
-  activeOnly: Boolean
-  "Only tasks due on or before this ISO-8601 date."
-  dueBefore: String
-  "Only tasks carrying all of these label uids."
-  labelUids: [ID!]
-}
-
-"Narrows the members query."
-input MemberFilter {
-  "Return only these uids."
-  uids: [ID!]
-  "Case-insensitive substring match against name."
-  nameContains: String
-  "Filter by access level."
-  role: MemberRole
-  "Set false to include members whose access was revoked. Defaults to true."
-  activeOnly: Boolean
-}
-
-"Narrows the labels query."
-input LabelFilter {
-  "Return only these uids."
-  uids: [ID!]
-  "Case-insensitive substring match against name."
-  nameContains: String
-  "Set false to include retired labels. Defaults to true."
-  activeOnly: Boolean
-}
-
-"Narrows the milestones query."
-input MilestoneFilter {
-  "Return only these uids."
-  uids: [ID!]
-  "Restrict to a single project."
-  projectUid: ID
-  "Only milestones not yet reached."
-  pendingOnly: Boolean
-  "Only milestones targeted on or before this ISO-8601 date."
-  targetBefore: String
-}
-
-"Narrows the audit entries query."
-input AuditEntryFilter {
-  "Entity type to filter on, e.g. 'Task'."
-  entityType: String
-  "uid of the entity whose history is wanted."
-  entityUid: ID
-  "uid of the member who made the change."
-  actorUid: ID
+  "Filter by owner/assignee uid. Only meaningful for Project (owner) and Task (assignee)."
+  ownerUid: [ID!]
 }
 
 # -----------------------------------------------------------------------------

@@ -34,9 +34,10 @@ def _run_server() -> None:
         logger.error("MCP_TRANSPORT=http is not implemented yet — use 'stdio'")
         sys.exit(1)
     elif transport == "stdio":
+        from mcp_server_template.config import load_config
         from mcp_server_template.server import create_mcp
 
-        mcp = create_mcp()
+        mcp = create_mcp(load_config())
         mcp.run(transport="stdio")
     else:
         logger.error("Unknown MCP_TRANSPORT=%r — valid values: 'http', 'stdio'", transport)

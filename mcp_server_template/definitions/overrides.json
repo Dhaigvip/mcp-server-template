@@ -1,0 +1,6 @@
+{
+  "audit_entries": {
+    "skip": true,
+    "_comment": "Present in demo-schema.graphql specifically to exercise this skip path (see the schema's header comment) -- the audit trail is queryable in the schema but deliberately hidden from the agent."
+  }
+}

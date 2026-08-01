@@ -5,19 +5,70 @@ create_mcp() builds the FastMCP instance and registers its tools. Every
 transport (stdio now, HTTP later) calls this one function to get "the app",
 so tools registered here are available regardless of which transport is
 running.
+
+Schema loading — file path only (for now):
+  SCHEMA_FILE set (see .env.example) — tools generated from the file at
+    startup via introspect_from_file(). No live backend needed to start.
+  SCHEMA_FILE not set — no tools registered; a warning is logged.
+
+  The dynamic path (fetch schema from a live backend on first request,
+  see the reference's schema_manager.py) only makes sense once there's an
+  HTTP transport to hang "first request" off of — stdio has no such
+  moment. Deferred to whenever Task 3b (HTTP transport) lands.
+
+Overrides:
+  mcp_server_template/definitions/overrides.json — optional, applied after
+  introspection. Supports: skip (bool), description (str) per entity.
 """
 from __future__ import annotations
+
+import contextlib
+import logging
+from pathlib import Path
 
 from fastmcp import FastMCP
 from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
 from fastmcp.server.middleware.logging import LoggingMiddleware
 
+from mcp_server_template.config import AppConfig
+from mcp_server_template.graphql.client import GraphQLClient
+from mcp_server_template.graphql.introspection import introspect_from_file
+from mcp_server_template.registry.entity_map import set_entity_defs
+from mcp_server_template.registry.loader import load_overrides, raw_defs_to_entity_defs
+from mcp_server_template.registry.tool_factory import register_entity_tools
 
-def create_mcp() -> FastMCP:
+logger = logging.getLogger(__name__)
+
+_DEFINITIONS_DIR = Path(__file__).parent / "definitions"
+
+
+def create_mcp(config: AppConfig) -> FastMCP:
     """Build a FastMCP instance with its middleware and tools registered."""
-    mcp = FastMCP("mcp-server-template", version="0.1.0")
+    client = GraphQLClient(config.graphql)
+    overrides = load_overrides(_DEFINITIONS_DIR)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app):
+        yield
+        await client.aclose()
+
+    mcp = FastMCP("mcp-server-template", version="0.1.0", lifespan=lifespan)
     _register_middleware(mcp)
-    _register_smoke_test_tools(mcp)
+
+    if config.server.schema_file:
+        logger.info("Schema file: loading from %s", config.server.schema_file)
+        raw_defs = introspect_from_file(config.server.schema_file)
+        entity_defs = raw_defs_to_entity_defs(raw_defs, overrides)
+        set_entity_defs(entity_defs)
+        for defn in entity_defs.values():
+            register_entity_tools(mcp, defn, client)
+        logger.info("Schema file: registered tools for %d entities", len(entity_defs))
+    else:
+        logger.warning(
+            "No SCHEMA_FILE configured — no tools registered. Set SCHEMA_FILE (see "
+            ".env.example) to generate tools from a schema at startup."
+        )
+
     return mcp
 
 
@@ -40,27 +91,3 @@ def _register_middleware(mcp: FastMCP) -> None:
     # Innermost: closest to the actual tool call, catches raw exceptions and
     # converts them to proper MCP error responses before they bubble up.
     mcp.add_middleware(ErrorHandlingMiddleware())
-
-
-# ── Smoke-test tools ─────────────────────────────────────────────────────────
-# Hand-written, registered directly via mcp.tool — no generator involved.
-# DELETE these once the schema-driven tool generator (get_*/create_*/update_*
-# from demo-schema.graphql) is in place; they exist only to prove the
-# transport + FastMCP wiring works end to end before the generator exists.
-
-
-def _register_smoke_test_tools(mcp: FastMCP) -> None:
-    @mcp.tool
-    def ping() -> str:
-        """Takes no arguments, always returns "pong"."""
-        return "pong"
-
-    @mcp.tool
-    def echo(text: str) -> str:
-        """Returns text unchanged. Exercises a required string argument."""
-        return text
-
-    @mcp.tool
-    def add(a: int, b: int) -> int:
-        """Returns a + b. Exercises multiple typed arguments and a non-string return."""
-        return a + b
