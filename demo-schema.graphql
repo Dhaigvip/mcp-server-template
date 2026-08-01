@@ -5,7 +5,7 @@
 # deliberately shaped to exercise every code path in the MCP tool generator:
 #
 #   * plural list queries          -> is_list = True   (the common case)
-#   * one singular object query    -> is_list = False  (currentWorkspace)
+#   * one singular object query    -> is_list = False  (currentOrganization)
 #   * a query with no filter arg   -> has_filter = False
 #   * nested relations 2 levels deep -> NestedDef, dot-notation include paths
 #   * create + update mutations    -> input_type_create / input_type_update
@@ -47,7 +47,7 @@ enum Priority {
   CRITICAL
 }
 
-"Role a member holds within the workspace."
+"Role a member holds within the organization."
 enum MemberRole {
   VIEWER
   CONTRIBUTOR
@@ -61,25 +61,25 @@ enum MemberRole {
 
 type Query {
   """
-  The workspace the authenticated caller belongs to.
+  The organization the authenticated caller belongs to.
   Returns a single object rather than a list — the generator must set
   is_list = False for this field. Takes no filter argument.
   """
-  currentWorkspace: Workspace
+  currentOrganization: Organization
 
   """
-  Projects in the current workspace.
+  Projects in the current organization.
   Only active projects are returned unless the filter explicitly asks otherwise.
   """
   projects(filter: ItemFilter): [Project!]!
 
   """
-  Tasks across the workspace. Narrow with the filter rather than fetching all
+  Tasks across the organization. Narrow with the filter rather than fetching all
   tasks and filtering client-side.
   """
   tasks(filter: ItemFilter): [Task!]!
 
-  "People with access to the current workspace."
+  "People with access to the current organization."
   members(filter: ItemFilter): [Member!]!
 
   "Labels available for tagging projects and tasks."
@@ -100,11 +100,11 @@ type Query {
 # Entities
 # -----------------------------------------------------------------------------
 
-"A workspace is the top-level container. Each caller belongs to exactly one."
-type Workspace {
+"An organization is the top-level container. Each caller belongs to exactly one."
+type Organization {
   "Stable unique identifier."
   uid: ID!
-  "Human-readable workspace name."
+  "Human-readable organization name."
   name: String!
   "Short server-generated slug. Read-only — never accept this as user input."
   slug: String!
@@ -114,9 +114,9 @@ type Workspace {
   createdAt: String!
   "Total number of projects, including archived ones."
   projectCount: Int!
-  "Projects belonging to this workspace."
+  "Projects belonging to this organization."
   projects: [Project!]!
-  "People with access to this workspace."
+  "People with access to this organization."
   members: [Member!]!
 }
 
@@ -125,7 +125,7 @@ type Project {
   "Stable unique identifier."
   uid: ID!
   """
-  Short reference code, e.g. 'PRJ-014'. Generated server-side from workspace
+  Short reference code, e.g. 'PRJ-014'. Generated server-side from organization
   sequence rules — it is NOT settable or updatable by a client. Excluded from
   both create and update input types on purpose.
   """
@@ -142,7 +142,7 @@ type Project {
   dueDate: String
   "Completion between 0.0 and 1.0, derived from child task status."
   progress: Float!
-  "Allocated budget in the workspace's reporting currency."
+  "Allocated budget in the organization's reporting currency."
   budget: Float
   "ISO-8601 creation timestamp. Server-generated."
   createdAt: String!
@@ -192,7 +192,7 @@ type Task {
   blockedBy: [Task!]!
 }
 
-"A person with access to the workspace."
+"A person with access to the organization."
 type Member {
   "Stable unique identifier."
   uid: ID!
@@ -200,7 +200,7 @@ type Member {
   name: String!
   "Contact email address."
   email: String!
-  "Access level within the workspace."
+  "Access level within the organization."
   role: MemberRole!
   "False once access has been revoked."
   active: Boolean!
@@ -280,7 +280,7 @@ type AuditEntry {
 # introspecting each query's actual filter type. Not every field is
 # meaningful for every entity (e.g. `priority` doesn't apply to Member or
 # Label) — fields that don't apply to a given entity are simply unused by
-# its resolver. currentWorkspace intentionally takes no filter argument at
+# its resolver. currentOrganization intentionally takes no filter argument at
 # all (exercises has_filter = False).
 # -----------------------------------------------------------------------------
 
@@ -358,7 +358,7 @@ input ProjectCreateInput {
   priority: Priority
   "ISO-8601 date (YYYY-MM-DD)."
   dueDate: String
-  "Allocated budget in the workspace's reporting currency."
+  "Allocated budget in the organization's reporting currency."
   budget: Float
   "uid of the member accountable for the project."
   ownerUid: ID
@@ -379,7 +379,7 @@ input ProjectUpdateInput {
   priority: Priority
   "New target completion date, ISO-8601 (YYYY-MM-DD)."
   dueDate: String
-  "New budget in the workspace's reporting currency."
+  "New budget in the organization's reporting currency."
   budget: Float
   "uid of the member to make accountable for the project."
   ownerUid: ID
@@ -456,9 +456,9 @@ input MemberUpdateInput {
   uid: ID!
   "New display name."
   name: String
-  "New access level within the workspace."
+  "New access level within the organization."
   role: MemberRole
-  "Set false to revoke workspace access."
+  "Set false to revoke organization access."
   active: Boolean
   "New job title, free text."
   jobTitle: String
