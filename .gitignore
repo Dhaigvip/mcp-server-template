@@ -20,3 +20,7 @@ build/
 !.env.example
 *.log
 .DS_Store
+
+CLAUDE.md
+TASKS.md
+
