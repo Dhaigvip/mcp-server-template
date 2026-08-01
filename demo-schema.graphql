@@ -1,0 +1,615 @@
+# =============================================================================
+# Demo GraphQL schema — generic project/task management domain
+#
+# This schema is the public stand-in for the proprietary product schema. It is
+# deliberately shaped to exercise every code path in the MCP tool generator:
+#
+#   * plural list queries          -> is_list = True   (the common case)
+#   * one singular object query    -> is_list = False  (currentWorkspace)
+#   * a query with no filter arg   -> has_filter = False
+#   * nested relations 2 levels deep -> NestedDef, dot-notation include paths
+#   * create + update mutations    -> input_type_create / input_type_update
+#   * update-only entity           -> mutation_create = None
+#   * server-generated read-only fields -> excluded from mutable_fields
+#   * scalar variety (String/Boolean/Int/Float/enum/ID)
+#   * a list-of-objects input      -> MutableFieldDef.item_fields / item_required
+#   * an entity intended to be hidden via overrides.json -> AuditEntry
+#
+# Every type, field and argument carries a description, because the generator
+# lifts those into tool descriptions (schema_description*) and the entity map.
+# =============================================================================
+
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+# -----------------------------------------------------------------------------
+# Enums
+# -----------------------------------------------------------------------------
+
+"Lifecycle state of a task."
+enum TaskStatus {
+  "Not yet started."
+  TODO
+  "Actively being worked on."
+  IN_PROGRESS
+  "Waiting on someone or something else."
+  BLOCKED
+  "Finished."
+  DONE
+}
+
+"Relative importance, used for ordering and filtering."
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+"Role a member holds within the workspace."
+enum MemberRole {
+  VIEWER
+  CONTRIBUTOR
+  MAINTAINER
+  OWNER
+}
+
+# -----------------------------------------------------------------------------
+# Query root
+# -----------------------------------------------------------------------------
+
+type Query {
+  """
+  The workspace the authenticated caller belongs to.
+  Returns a single object rather than a list — the generator must set
+  is_list = False for this field. Takes no filter argument.
+  """
+  currentWorkspace: Workspace
+
+  """
+  Projects in the current workspace.
+  Only active projects are returned unless the filter explicitly asks otherwise.
+  """
+  projects(filter: ProjectFilter): [Project!]!
+
+  """
+  Tasks across the workspace. Narrow with the filter rather than fetching all
+  tasks and filtering client-side.
+  """
+  tasks(filter: TaskFilter): [Task!]!
+
+  "People with access to the current workspace."
+  members(filter: MemberFilter): [Member!]!
+
+  "Labels available for tagging projects and tasks."
+  labels(filter: LabelFilter): [Label!]!
+
+  "Delivery milestones that group tasks by target date."
+  milestones(filter: MilestoneFilter): [Milestone!]!
+
+  """
+  Immutable audit trail. Present in the schema but intended to be hidden from
+  the agent via definitions/overrides.json (skip: true) — exercises the
+  skip path in the registry loader.
+  """
+  auditEntries(filter: AuditEntryFilter): [AuditEntry!]!
+}
+
+# -----------------------------------------------------------------------------
+# Entities
+# -----------------------------------------------------------------------------
+
+"A workspace is the top-level container. Each caller belongs to exactly one."
+type Workspace {
+  "Stable unique identifier."
+  uid: ID!
+  "Human-readable workspace name."
+  name: String!
+  "Short server-generated slug. Read-only — never accept this as user input."
+  slug: String!
+  "IANA timezone used to interpret due dates, e.g. 'Europe/Stockholm'."
+  timezone: String!
+  "ISO-8601 creation timestamp. Server-generated."
+  createdAt: String!
+  "Total number of projects, including archived ones."
+  projectCount: Int!
+  "Projects belonging to this workspace."
+  projects: [Project!]!
+  "People with access to this workspace."
+  members: [Member!]!
+}
+
+"A project groups related tasks and has its own schedule and owner."
+type Project {
+  "Stable unique identifier."
+  uid: ID!
+  """
+  Short reference code, e.g. 'PRJ-014'. Generated server-side from workspace
+  sequence rules — it is NOT settable or updatable by a client. Excluded from
+  both create and update input types on purpose.
+  """
+  code: String!
+  "Project name."
+  name: String!
+  "Free-text description of scope and intent."
+  description: String
+  "False once the project is archived. Archived projects are hidden by default."
+  active: Boolean!
+  "Current priority."
+  priority: Priority!
+  "Target completion date, ISO-8601 date (YYYY-MM-DD)."
+  dueDate: String
+  "Completion between 0.0 and 1.0, derived from child task status."
+  progress: Float!
+  "Allocated budget in the workspace's reporting currency."
+  budget: Float
+  "ISO-8601 creation timestamp. Server-generated."
+  createdAt: String!
+  "Member accountable for the project."
+  owner: Member
+  "Tasks belonging to this project. Include path: 'tasks'."
+  tasks: [Task!]!
+  "Milestones defined for this project. Include path: 'milestones'."
+  milestones: [Milestone!]!
+  "Labels applied to this project. Include path: 'labels'."
+  labels: [Label!]!
+}
+
+"A single unit of work inside a project."
+type Task {
+  "Stable unique identifier."
+  uid: ID!
+  "Short reference code, e.g. 'TSK-1042'. Server-generated, read-only."
+  code: String!
+  "Task title."
+  title: String!
+  "Detailed description of the work."
+  description: String
+  "False once the task is archived."
+  active: Boolean!
+  "Current lifecycle state."
+  status: TaskStatus!
+  "Relative importance."
+  priority: Priority!
+  "Rough size in hours. Null when not estimated."
+  estimateHours: Float
+  "Hours actually recorded against this task."
+  loggedHours: Float!
+  "Target completion date, ISO-8601 date (YYYY-MM-DD)."
+  dueDate: String
+  "Zero-based position within its project, used for manual ordering."
+  sortOrder: Int!
+  "Project this task belongs to. Include path: 'project'."
+  project: Project!
+  "Member currently responsible. Include path: 'assignee'."
+  assignee: Member
+  "Labels applied to this task. Include path: 'labels'."
+  labels: [Label!]!
+  "Checklist items. Include path: 'checklist'."
+  checklist: [ChecklistItem!]!
+  "Tasks that must finish before this one can start. Include path: 'blockedBy'."
+  blockedBy: [Task!]!
+}
+
+"A person with access to the workspace."
+type Member {
+  "Stable unique identifier."
+  uid: ID!
+  "Display name."
+  name: String!
+  "Contact email address."
+  email: String!
+  "Access level within the workspace."
+  role: MemberRole!
+  "False once access has been revoked."
+  active: Boolean!
+  "Optional job title, free text."
+  jobTitle: String
+  "Weekly working hours, used for capacity calculations."
+  capacityHours: Float
+  "Tasks currently assigned to this member. Include path: 'assignedTasks'."
+  assignedTasks: [Task!]!
+}
+
+"A named tag that can be applied to projects and tasks."
+type Label {
+  "Stable unique identifier."
+  uid: ID!
+  "Label text."
+  name: String!
+  "Hex colour, e.g. '#4F46E5'."
+  colour: String!
+  "False once the label is retired."
+  active: Boolean!
+  "How many projects and tasks currently carry this label."
+  usageCount: Int!
+}
+
+"A dated checkpoint that groups tasks within a project."
+type Milestone {
+  "Stable unique identifier."
+  uid: ID!
+  "Milestone name."
+  name: String!
+  "Target date, ISO-8601 date (YYYY-MM-DD)."
+  targetDate: String!
+  "True once the milestone has been reached."
+  reached: Boolean!
+  "Project this milestone belongs to. Include path: 'project'."
+  project: Project!
+  "Tasks associated with this milestone. Include path: 'tasks'."
+  tasks: [Task!]!
+}
+
+"One item on a task's checklist."
+type ChecklistItem {
+  "Stable unique identifier."
+  uid: ID!
+  "What needs doing."
+  text: String!
+  "Whether the item has been ticked off."
+  done: Boolean!
+}
+
+"""
+An immutable record of a change. Queryable in the schema, but hidden from the
+agent through overrides.json so the generator's skip path has something to skip.
+"""
+type AuditEntry {
+  "Stable unique identifier."
+  uid: ID!
+  "Entity type that changed, e.g. 'Task'."
+  entityType: String!
+  "uid of the changed entity."
+  entityUid: ID!
+  "What happened, e.g. 'created', 'updated', 'archived'."
+  action: String!
+  "uid of the member responsible."
+  actorUid: ID!
+  "ISO-8601 timestamp."
+  occurredAt: String!
+}
+
+# -----------------------------------------------------------------------------
+# Filter inputs
+# -----------------------------------------------------------------------------
+
+"Narrows the projects query."
+input ProjectFilter {
+  "Return only these uids."
+  uids: [ID!]
+  "Case-insensitive substring match against name."
+  nameContains: String
+  "Case-insensitive substring match against description."
+  descriptionContains: String
+  "Filter by owner."
+  ownerUid: ID
+  "Filter by priority."
+  priority: Priority
+  "Set false to include archived projects. Defaults to true."
+  activeOnly: Boolean
+  "Only projects due on or before this ISO-8601 date."
+  dueBefore: String
+}
+
+"Narrows the tasks query."
+input TaskFilter {
+  "Return only these uids."
+  uids: [ID!]
+  "Restrict to a single project."
+  projectUid: ID
+  "Restrict to a single assignee."
+  assigneeUid: ID
+  "Restrict to one or more statuses."
+  statuses: [TaskStatus!]
+  "Filter by priority."
+  priority: Priority
+  "Case-insensitive substring match against title."
+  titleContains: String
+  "Set false to include archived tasks. Defaults to true."
+  activeOnly: Boolean
+  "Only tasks due on or before this ISO-8601 date."
+  dueBefore: String
+  "Only tasks carrying all of these label uids."
+  labelUids: [ID!]
+}
+
+"Narrows the members query."
+input MemberFilter {
+  "Return only these uids."
+  uids: [ID!]
+  "Case-insensitive substring match against name."
+  nameContains: String
+  "Filter by access level."
+  role: MemberRole
+  "Set false to include members whose access was revoked. Defaults to true."
+  activeOnly: Boolean
+}
+
+"Narrows the labels query."
+input LabelFilter {
+  "Return only these uids."
+  uids: [ID!]
+  "Case-insensitive substring match against name."
+  nameContains: String
+  "Set false to include retired labels. Defaults to true."
+  activeOnly: Boolean
+}
+
+"Narrows the milestones query."
+input MilestoneFilter {
+  "Return only these uids."
+  uids: [ID!]
+  "Restrict to a single project."
+  projectUid: ID
+  "Only milestones not yet reached."
+  pendingOnly: Boolean
+  "Only milestones targeted on or before this ISO-8601 date."
+  targetBefore: String
+}
+
+"Narrows the audit entries query."
+input AuditEntryFilter {
+  "Entity type to filter on, e.g. 'Task'."
+  entityType: String
+  "uid of the entity whose history is wanted."
+  entityUid: ID
+  "uid of the member who made the change."
+  actorUid: ID
+}
+
+# -----------------------------------------------------------------------------
+# Mutation root
+# -----------------------------------------------------------------------------
+
+type Mutation {
+  "Create a project. 'code' is generated server-side and must not be supplied."
+  createProject(input: ProjectCreateInput!): ProjectPayload!
+
+  "Update an existing project. Only the fields supplied are changed."
+  updateProject(input: ProjectUpdateInput!): ProjectPayload!
+
+  "Create a task within a project. 'code' is generated server-side."
+  createTask(input: TaskCreateInput!): TaskPayload!
+
+  "Update an existing task. Only the fields supplied are changed."
+  updateTask(input: TaskUpdateInput!): TaskPayload!
+
+  """
+  Update a member. There is deliberately no createMember mutation — members
+  arrive through an invitation flow outside this API. Exercises the
+  update-only path (mutation_create = None).
+  """
+  updateMember(input: MemberUpdateInput!): MemberPayload!
+
+  "Create a label."
+  createLabel(input: LabelCreateInput!): LabelPayload!
+
+  "Update a label."
+  updateLabel(input: LabelUpdateInput!): LabelPayload!
+
+  "Create a milestone within a project."
+  createMilestone(input: MilestoneCreateInput!): MilestonePayload!
+
+  "Update a milestone."
+  updateMilestone(input: MilestoneUpdateInput!): MilestonePayload!
+}
+
+# -----------------------------------------------------------------------------
+# Mutation inputs
+#
+# Note the consistent shape: every mutation takes a single `input` argument and
+# returns a payload carrying { ok, message, <entity> }. Consistent return shape
+# matters — it lets one response handler serve every generated mutation tool.
+# -----------------------------------------------------------------------------
+
+input ProjectCreateInput {
+  "Project name. Required."
+  name: String!
+  "Free-text description of scope and intent."
+  description: String
+  "Initial priority. Defaults to MEDIUM when omitted."
+  priority: Priority
+  "ISO-8601 date (YYYY-MM-DD)."
+  dueDate: String
+  "Allocated budget in the workspace's reporting currency."
+  budget: Float
+  "uid of the member accountable for the project."
+  ownerUid: ID
+  "uids of labels to apply on creation."
+  labelUids: [ID!]
+}
+
+input ProjectUpdateInput {
+  "uid of the project to update. Required."
+  uid: ID!
+  "New project name."
+  name: String
+  "New description."
+  description: String
+  "Set false to archive the project."
+  active: Boolean
+  "New priority."
+  priority: Priority
+  "New target completion date, ISO-8601 (YYYY-MM-DD)."
+  dueDate: String
+  "New budget in the workspace's reporting currency."
+  budget: Float
+  "uid of the member to make accountable for the project."
+  ownerUid: ID
+  "Replaces the full label set when supplied."
+  labelUids: [ID!]
+}
+
+input TaskCreateInput {
+  "uid of the parent project. Required."
+  projectUid: ID!
+  "Task title. Required."
+  title: String!
+  "Detailed description of the work."
+  description: String
+  "Initial status. Defaults to TODO when omitted."
+  status: TaskStatus
+  "Initial priority. Defaults to MEDIUM when omitted."
+  priority: Priority
+  "Rough size in hours."
+  estimateHours: Float
+  "Target completion date, ISO-8601 (YYYY-MM-DD)."
+  dueDate: String
+  "uid of the member to make responsible."
+  assigneeUid: ID
+  "uids of labels to apply on creation."
+  labelUids: [ID!]
+  """
+  Checklist items to create alongside the task. A list of objects — this is
+  what populates MutableFieldDef.item_fields and item_required in the
+  generator, so keep it in the schema.
+  """
+  checklist: [ChecklistItemInput!]
+}
+
+input TaskUpdateInput {
+  "uid of the task to update. Required."
+  uid: ID!
+  "New task title."
+  title: String
+  "New description."
+  description: String
+  "Set false to archive the task."
+  active: Boolean
+  "New lifecycle state."
+  status: TaskStatus
+  "New priority."
+  priority: Priority
+  "New size estimate in hours."
+  estimateHours: Float
+  "Hours to record against the task. Replaces the stored value."
+  loggedHours: Float
+  "New target completion date, ISO-8601 (YYYY-MM-DD)."
+  dueDate: String
+  "New zero-based position within the project."
+  sortOrder: Int
+  "uid of the member to make responsible. Pass null to unassign."
+  assigneeUid: ID
+  "Replaces the full label set when supplied."
+  labelUids: [ID!]
+  "Replaces the full checklist when supplied."
+  checklist: [ChecklistItemInput!]
+}
+
+"One checklist item. 'text' is required; 'done' defaults to false."
+input ChecklistItemInput {
+  "What needs doing. Required."
+  text: String!
+  "Whether the item is already ticked off."
+  done: Boolean
+}
+
+input MemberUpdateInput {
+  "uid of the member to update. Required."
+  uid: ID!
+  "New display name."
+  name: String
+  "New access level within the workspace."
+  role: MemberRole
+  "Set false to revoke workspace access."
+  active: Boolean
+  "New job title, free text."
+  jobTitle: String
+  "New weekly working hours, used for capacity calculations."
+  capacityHours: Float
+}
+
+input LabelCreateInput {
+  "Label text. Required."
+  name: String!
+  "Hex colour, e.g. '#4F46E5'. Required."
+  colour: String!
+}
+
+input LabelUpdateInput {
+  "uid of the label to update. Required."
+  uid: ID!
+  "New label text."
+  name: String
+  "New hex colour, e.g. '#4F46E5'."
+  colour: String
+  "Set false to retire the label."
+  active: Boolean
+}
+
+input MilestoneCreateInput {
+  "uid of the parent project. Required."
+  projectUid: ID!
+  "Milestone name. Required."
+  name: String!
+  "Target date, ISO-8601 (YYYY-MM-DD). Required."
+  targetDate: String!
+}
+
+input MilestoneUpdateInput {
+  "uid of the milestone to update. Required."
+  uid: ID!
+  "New milestone name."
+  name: String
+  "New target date, ISO-8601 (YYYY-MM-DD)."
+  targetDate: String
+  "Set true once the milestone has been reached."
+  reached: Boolean
+}
+
+# -----------------------------------------------------------------------------
+# Mutation payloads
+# -----------------------------------------------------------------------------
+
+"Standard mutation result for projects."
+type ProjectPayload {
+  "True when the mutation succeeded."
+  ok: Boolean!
+  "Human-readable outcome, suitable for surfacing to a user."
+  message: String
+  "The project after the change. Null when ok is false."
+  project: Project
+}
+
+"Standard mutation result for tasks."
+type TaskPayload {
+  "True when the mutation succeeded."
+  ok: Boolean!
+  "Human-readable outcome, suitable for surfacing to a user."
+  message: String
+  "The task after the change. Null when ok is false."
+  task: Task
+}
+
+"Standard mutation result for members."
+type MemberPayload {
+  "True when the mutation succeeded."
+  ok: Boolean!
+  "Human-readable outcome, suitable for surfacing to a user."
+  message: String
+  "The member after the change. Null when ok is false."
+  member: Member
+}
+
+"Standard mutation result for labels."
+type LabelPayload {
+  "True when the mutation succeeded."
+  ok: Boolean!
+  "Human-readable outcome, suitable for surfacing to a user."
+  message: String
+  "The label after the change. Null when ok is false."
+  label: Label
+}
+
+"Standard mutation result for milestones."
+type MilestonePayload {
+  "True when the mutation succeeded."
+  ok: Boolean!
+  "Human-readable outcome, suitable for surfacing to a user."
+  message: String
+  "The milestone after the change. Null when ok is false."
+  milestone: Milestone
+}
