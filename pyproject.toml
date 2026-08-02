@@ -37,13 +37,14 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "black>=23.0",
     "ruff>=0.1.0",
+    "strawberry-graphql>=0.230.0",
 ]
 
 [project.scripts]
 mcp-server-template = "mcp_server_template.__main__:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["mcp_server_template"]
+packages = ["mcp_server_template", "mock_backend"]
 
 [tool.black]
 line-length = 100

@@ -14,10 +14,14 @@ Subcommands:
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import logging
 import os
+import subprocess
 import sys
+import time
+from pathlib import Path
 
 # stdio transport uses stdout exclusively for MCP protocol messages — any
 # other output on stdout corrupts the stream, so logging must go to stderr.
@@ -55,7 +59,53 @@ def main() -> None:
         _run_server()
 
 
+def _maybe_start_mock_backend() -> None:
+    """
+    When MOCK_BACKEND=1, start the bundled mock GraphQL backend as a subprocess
+    and auto-configure GRAPHQL_BASE_URL and SCHEMA_FILE to point at it.
+
+    MOCK_BACKEND_PORT controls the port (default 4000).
+    """
+    if not os.environ.get("MOCK_BACKEND"):
+        return
+
+    port = int(os.environ.get("MOCK_BACKEND_PORT", "4000"))
+    os.environ.setdefault("GRAPHQL_BASE_URL", f"http://127.0.0.1:{port}")
+
+    # Auto-set SCHEMA_FILE to the demo schema when not already configured.
+    if not os.environ.get("SCHEMA_FILE"):
+        demo = Path(__file__).parent.parent / "demo-schema.graphql"
+        if demo.exists():
+            os.environ["SCHEMA_FILE"] = str(demo)
+
+    logger.info("MOCK_BACKEND=1 — starting mock GraphQL backend on port %d", port)
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "mock_backend", "--port", str(port)],
+        stdout=sys.stderr,
+        stderr=sys.stderr,
+    )
+    atexit.register(proc.terminate)
+
+    # Poll /schema until the server is ready (up to 10 s).
+    url = f"http://127.0.0.1:{port}/schema"
+    deadline = time.monotonic() + 10
+    import urllib.request
+    import urllib.error
+
+    while time.monotonic() < deadline:
+        try:
+            urllib.request.urlopen(url, timeout=1)
+            logger.info("Mock backend ready at http://127.0.0.1:%d", port)
+            return
+        except (urllib.error.URLError, OSError):
+            time.sleep(0.25)
+
+    logger.warning("Mock backend did not respond within 10 s — continuing anyway")
+
+
 def _run_server() -> None:
+    _maybe_start_mock_backend()
+
     from mcp_server_template.config import load_config
     import uvicorn
 

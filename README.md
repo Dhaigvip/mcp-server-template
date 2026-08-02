@@ -55,6 +55,9 @@ Or pass env vars inline:
 # Quick test with demo schema (no live backend needed)
 SCHEMA_FILE=./demo-schema.graphql GRAPHQL_BASE_URL=http://localhost python -m mcp_server_template
 
+# Even quicker: auto-start the bundled mock backend alongside the MCP server
+MOCK_BACKEND=1 python -m mcp_server_template
+
 # Connect with live backend (SCHEMA_FILE optional; if set, uses cached schema)
 GRAPHQL_BASE_URL=https://your-api.com GRAPHQL_API_TOKEN=your-token python -m mcp_server_template
 ```
@@ -114,6 +117,44 @@ python -m mcp_server_template generate --schema-file demo-schema.graphql
 # Or as JSON to a file
 python -m mcp_server_template generate --schema-file demo-schema.graphql --json -o tools.json
 ```
+
+### Mock backend (no real GraphQL API needed)
+
+`mock_backend` is a Strawberry/Python GraphQL server that mirrors
+`demo-schema.graphql` with hardcoded fixture data (2 projects, 4 tasks, 3
+members, labels, milestones). Use it to run the full MCP server stack locally
+without a real backend.
+
+**Option A — auto-start alongside the MCP server (recommended for quick testing)**
+
+```powershell
+# Sets GRAPHQL_BASE_URL=http://127.0.0.1:4000 and SCHEMA_FILE automatically.
+MOCK_BACKEND=1 python -m mcp_server_template
+
+# HTTP transport variant:
+MOCK_BACKEND=1 MCP_TRANSPORT=http python -m mcp_server_template
+```
+
+The MCP server starts the mock backend as a subprocess on port 4000, waits
+for it to be ready, then starts itself. Both shut down together.
+
+**Option B — run them in separate terminals**
+
+```powershell
+# Terminal 1: mock backend (GraphiQL at http://127.0.0.1:4000/graphql)
+python -m mock_backend
+
+# Terminal 2: MCP server pointing at it
+$env:GRAPHQL_BASE_URL = "http://127.0.0.1:4000"
+$env:SCHEMA_FILE      = "./demo-schema.graphql"
+python -m mcp_server_template
+```
+
+The mock backend also exposes `GET /schema` returning the raw SDL text, which
+exercises the `GRAPHQL_SCHEMA_ENDPOINT` path if you set it.
+
+Mutations in the mock backend update in-memory state for the lifetime of the
+process — create a task, then query tasks and the new one appears.
 
 ### Test over stdio transport
 
@@ -222,6 +263,8 @@ MCP_TRANSPORT=http python -m mcp_server_template
 | `MCP_TRANSPORT` | No | Transport type: `stdio` (default) or `http` |
 | `HOST` | No | HTTP server bind address (default: `0.0.0.0`) |
 | `PORT` | No | HTTP server port (default: `3001`) |
+| `MOCK_BACKEND` | No | Set to `1` to auto-start the bundled mock GraphQL backend alongside the MCP server (dev/test only) |
+| `MOCK_BACKEND_PORT` | No | Port for the mock backend when `MOCK_BACKEND=1` (default: `4000`) |
 
 ## Authentication
 

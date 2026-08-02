@@ -1,0 +1,217 @@
+"""Hardcoded fixture data. Mutations update these dicts in-memory (volatile — lost on restart)."""
+
+from __future__ import annotations
+
+ORGANIZATION: dict = {
+    "uid": "org-001",
+    "name": "Acme Corp",
+    "slug": "acme-corp",
+    "timezone": "America/New_York",
+    "createdAt": "2024-01-01T00:00:00Z",
+    "projectCount": 2,
+}
+
+MEMBERS: dict[str, dict] = {
+    "m-001": {
+        "uid": "m-001",
+        "name": "Alice Johnson",
+        "email": "alice@acme.com",
+        "role": "OWNER",
+        "active": True,
+        "jobTitle": "Engineering Lead",
+        "capacityHours": 40.0,
+    },
+    "m-002": {
+        "uid": "m-002",
+        "name": "Bob Smith",
+        "email": "bob@acme.com",
+        "role": "MAINTAINER",
+        "active": True,
+        "jobTitle": "Senior Engineer",
+        "capacityHours": 40.0,
+    },
+    "m-003": {
+        "uid": "m-003",
+        "name": "Carol White",
+        "email": "carol@acme.com",
+        "role": "CONTRIBUTOR",
+        "active": True,
+        "jobTitle": "Engineer",
+        "capacityHours": 32.0,
+    },
+}
+
+LABELS: dict[str, dict] = {
+    "l-001": {
+        "uid": "l-001",
+        "name": "Frontend",
+        "colour": "#4F46E5",
+        "active": True,
+        "usageCount": 3,
+    },
+    "l-002": {
+        "uid": "l-002",
+        "name": "Backend",
+        "colour": "#10B981",
+        "active": True,
+        "usageCount": 4,
+    },
+    "l-003": {
+        "uid": "l-003",
+        "name": "Urgent",
+        "colour": "#EF4444",
+        "active": True,
+        "usageCount": 2,
+    },
+}
+
+PROJECTS: dict[str, dict] = {
+    "p-001": {
+        "uid": "p-001",
+        "code": "PRJ-001",
+        "name": "Website Redesign",
+        "description": "Redesign the public-facing website with a modern UI.",
+        "active": True,
+        "priority": "HIGH",
+        "dueDate": "2026-12-31",
+        "progress": 0.3,
+        "budget": 50000.0,
+        "createdAt": "2024-02-01T00:00:00Z",
+        "ownerUid": "m-001",
+        "labelUids": ["l-001"],
+        "milestoneUids": ["ms-001"],
+    },
+    "p-002": {
+        "uid": "p-002",
+        "code": "PRJ-002",
+        "name": "API Migration",
+        "description": "Migrate all REST endpoints to GraphQL.",
+        "active": True,
+        "priority": "CRITICAL",
+        "dueDate": "2026-09-30",
+        "progress": 0.6,
+        "budget": 80000.0,
+        "createdAt": "2024-03-15T00:00:00Z",
+        "ownerUid": "m-002",
+        "labelUids": ["l-002"],
+        "milestoneUids": ["ms-002"],
+    },
+}
+
+MILESTONES: dict[str, dict] = {
+    "ms-001": {
+        "uid": "ms-001",
+        "name": "Beta Launch",
+        "targetDate": "2026-10-01",
+        "reached": False,
+        "projectUid": "p-001",
+        "taskUids": ["t-001", "t-002"],
+    },
+    "ms-002": {
+        "uid": "ms-002",
+        "name": "v2.0 Release",
+        "targetDate": "2026-09-01",
+        "reached": False,
+        "projectUid": "p-002",
+        "taskUids": ["t-003", "t-004"],
+    },
+}
+
+TASKS: dict[str, dict] = {
+    "t-001": {
+        "uid": "t-001",
+        "code": "TSK-001",
+        "title": "Design homepage mockup",
+        "description": "Create wireframes and high-fidelity mockups for the homepage.",
+        "active": True,
+        "status": "TODO",
+        "priority": "HIGH",
+        "estimateHours": 8.0,
+        "loggedHours": 0.0,
+        "dueDate": "2026-09-15",
+        "sortOrder": 0,
+        "projectUid": "p-001",
+        "assigneeUid": "m-001",
+        "labelUids": ["l-001"],
+        "checklistItems": [
+            {"uid": "ci-001", "text": "Draft wireframes", "done": True},
+            {"uid": "ci-002", "text": "Review with stakeholders", "done": False},
+        ],
+        "blockedByUids": [],
+    },
+    "t-002": {
+        "uid": "t-002",
+        "code": "TSK-002",
+        "title": "Implement responsive nav",
+        "description": "Build the responsive navigation component.",
+        "active": True,
+        "status": "IN_PROGRESS",
+        "priority": "MEDIUM",
+        "estimateHours": 12.0,
+        "loggedHours": 4.0,
+        "dueDate": "2026-10-01",
+        "sortOrder": 1,
+        "projectUid": "p-001",
+        "assigneeUid": "m-002",
+        "labelUids": ["l-001"],
+        "checklistItems": [],
+        "blockedByUids": ["t-001"],
+    },
+    "t-003": {
+        "uid": "t-003",
+        "code": "TSK-003",
+        "title": "GraphQL schema migration",
+        "description": "Port all REST endpoints to GraphQL resolvers.",
+        "active": True,
+        "status": "BLOCKED",
+        "priority": "CRITICAL",
+        "estimateHours": 40.0,
+        "loggedHours": 10.0,
+        "dueDate": "2026-08-31",
+        "sortOrder": 0,
+        "projectUid": "p-002",
+        "assigneeUid": "m-003",
+        "labelUids": ["l-002", "l-003"],
+        "checklistItems": [
+            {"uid": "ci-003", "text": "Map existing endpoints", "done": True},
+        ],
+        "blockedByUids": [],
+    },
+    "t-004": {
+        "uid": "t-004",
+        "code": "TSK-004",
+        "title": "Deploy to staging",
+        "description": "Configure CI/CD pipeline and deploy the new API to staging.",
+        "active": True,
+        "status": "IN_PROGRESS",
+        "priority": "HIGH",
+        "estimateHours": 6.0,
+        "loggedHours": 2.0,
+        "dueDate": "2026-09-15",
+        "sortOrder": 1,
+        "projectUid": "p-002",
+        "assigneeUid": None,
+        "labelUids": ["l-002"],
+        "checklistItems": [],
+        "blockedByUids": ["t-003"],
+    },
+}
+
+AUDIT_ENTRIES: dict[str, dict] = {
+    "a-001": {
+        "uid": "a-001",
+        "entityType": "Task",
+        "entityUid": "t-001",
+        "action": "created",
+        "actorUid": "m-001",
+        "occurredAt": "2024-02-15T10:00:00Z",
+    },
+    "a-002": {
+        "uid": "a-002",
+        "entityType": "Project",
+        "entityUid": "p-001",
+        "action": "updated",
+        "actorUid": "m-002",
+        "occurredAt": "2024-03-01T14:30:00Z",
+    },
+}
