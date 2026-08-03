@@ -1,0 +1,21 @@
+%%{init: {'theme':'neutral', 'themeVariables': {'lineColor':'#94a3b8'}}}%%
+sequenceDiagram
+    participant Server as MCP Server
+    participant Introspect as Introspection
+    participant Factory as Tool Factory
+    participant FastMCP as FastMCP
+    participant Store as Tool Registry
+    
+    Server->>Introspect: Load schema (SDL or endpoint)
+    Introspect->>Introspect: Parse & normalize
+    Introspect-->>Factory: Schema<EntityDef>
+    
+    Factory->>Factory: For each entity
+    Factory->>Factory: Generate get_*, create_*, update_*
+    Factory->>Factory: Build JSON schema for args
+    Factory->>Store: Register via mcp.add_tool()
+    
+    Factory->>Factory: Generate entity map
+    Factory-->>Server: (Inject into system prompt)
+    
+    Server-->>Store: Ready to receive tool calls

@@ -1,0 +1,18 @@
+%%{init: {'theme':'neutral', 'themeVariables': {'lineColor':'#94a3b8'}}}%%
+graph LR
+    A["Client:<br/>tools/call<br/>get_tasks"] -->|JSON-RPC| B["Transport<br/>Handler"]
+    B -->|Route| C["FastMCP<br/>on_call_tool"]
+    
+    C -->|Execute| D["Logging<br/>Middleware"]
+    D -->|Next| E["Auth<br/>Middleware"]
+    E -->|Verify| F["OIDC Provider<br/>(optional)"]
+    F -->|Valid| E
+    
+    E -->|Call Tool| G["Builder:<br/>Build<br/>SelectionNode"]
+    G -->|GraphQL Query| H["GraphQL Backend"]
+    H -->|Result| I["Normalizer:<br/>Extract<br/>Errors"]
+    
+    I -->|Tool Result| D
+    D -->|Format| C
+    C -->|JSON-RPC<br/>Response| B
+    B -->|contentType: text| A

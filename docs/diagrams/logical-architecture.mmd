@@ -1,0 +1,15 @@
+%%{init: {'theme':'neutral', 'themeVariables': {'lineColor':'#94a3b8'}}}%%
+graph LR
+    A["GraphQL Schema<br/>(GraphQL or SDL)"] -->|Introspect| B["Schema Normalizer<br/>(introspection.py)"]
+    B -->|EntityDef| C["Tool Generator<br/>(tool_factory.py)"]
+    C -->|Generated Tools| D["FastMCP Registry<br/>(mcp.add_tool)"]
+    
+    C -->|Entity Map| E["Prompt Injector<br/>(for Agent System Prompt)"]
+    
+    D -->|Middleware| F["Auth<br/>Logging<br/>Error Handling"]
+    F -->|Tool Call| G["Query Builder<br/>(builder.py)"]
+    G -->|GraphQL Query| H["Backend<br/>Execution"]
+    H -->|Result| I["Normalize<br/>Return Value"]
+    I -->|Tool Result| F
+    F -->|Result| D
+    D -->|Response| J["MCP Client"]

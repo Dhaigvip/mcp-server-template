@@ -1,0 +1,38 @@
+%%{init: {'theme':'neutral', 'themeVariables': {'lineColor':'#94a3b8'}}}%%
+sequenceDiagram
+    participant Client as MCP Client
+    participant Transport as Transport Handler
+    participant FastMCP as FastMCP
+    participant Middleware as Middleware Chain
+    participant Builder as Query Builder
+    participant Backend as GraphQL Backend
+    participant Normalizer as Result Normalizer
+    
+    Client->>Transport: tools/call {name, arguments}
+    Transport->>FastMCP: Route to tool handler
+    
+    FastMCP->>Middleware: on_call_tool (hook)
+    
+    activate Middleware
+    Middleware->>Middleware: Log call
+    Middleware->>Middleware: Verify auth
+    
+    Middleware->>Builder: Build GraphQL query
+    Builder->>Builder: Parse include paths
+    Builder->>Builder: Build SelectionNode tree
+    Builder-->>Middleware: GraphQL Query + Variables
+    
+    Middleware->>Backend: Execute query
+    Backend-->>Middleware: JSON Result
+    
+    Middleware->>Normalizer: Normalize result
+    Normalizer->>Normalizer: Extract errors
+    Normalizer->>Normalizer: Format for tool response
+    Normalizer-->>Middleware: Normalized Result
+    
+    Middleware->>Middleware: Log result
+    deactivate Middleware
+    
+    Middleware-->>FastMCP: Tool result
+    FastMCP-->>Transport: JSON-RPC response
+    Transport-->>Client: { contentType, text }

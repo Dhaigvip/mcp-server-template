@@ -1,0 +1,16 @@
+%%{init: {'theme':'neutral', 'themeVariables': {'lineColor':'#94a3b8'}}}%%
+graph TB
+    Client["MCP Client<br/>(Agent, Claude Desktop)"]
+    Transport["Transport Layer<br/>(Stdio / HTTP)"]
+    FastMCP["FastMCP Server<br/>Core Registry"]
+    Middleware["Middleware Chain<br/>(Auth, Logging, Error Handling)"]
+    Generator["Schema-Driven<br/>Tool Generator"]
+    Schema["GraphQL Schema<br/>(Introspection)"]
+    Backend["GraphQL Backend<br/>(API Server)"]
+    
+    Client -->|JSON-RPC| Transport
+    Transport -->|tools/list<br/>tools/call| FastMCP
+    FastMCP -->|Register Tools| Generator
+    Generator -->|Introspect| Schema
+    Schema -->|Query| Backend
+    FastMCP -->|Execute| Backend
