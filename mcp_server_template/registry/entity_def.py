@@ -22,6 +22,10 @@ class MutableFieldDef:
     item_fields: dict[str, str] = field(default_factory=dict)
     # Required fields within each item (for list fields)
     item_required: list[str] = field(default_factory=list)
+    # For enum fields (python_type == "enum"): the allowed value names, so
+    # the tool description can tell the model what's actually valid instead
+    # of leaving it to guess a plausible-sounding value.
+    enum_values: list[str] = field(default_factory=list)
 
 
 @dataclass

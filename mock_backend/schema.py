@@ -479,10 +479,18 @@ def _apply_filter(
         code_set = set(f.codes)
         result = [i for i in result if i.get("code", "") in code_set]
     if f.names:
+        # Every fixture entity has a "display name" field, but it isn't
+        # always literally called "name" — Task uses "title" (matches
+        # demo-schema.graphql's own field naming). Fall back so the
+        # universal `names` filter actually works for Task/Project-shaped
+        # queries too, not just Member/Label/Milestone.
         result = [
             i
             for i in result
-            if any(i.get("name", "").lower().startswith(n.lower()) for n in f.names)
+            if any(
+                str(i.get("name") or i.get("title") or "").lower().startswith(n.lower())
+                for n in f.names
+            )
         ]
     if f.descriptions:
         result = [

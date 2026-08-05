@@ -55,6 +55,7 @@ _INTROSPECTION_QUERY = """
       kind
       fields { name description type { kind name ofType { kind name ofType { kind name ofType { kind name } } } } }
       inputFields { name description type { kind name ofType { kind name ofType { kind name ofType { kind name } } } } }
+      enumValues { name }
     }
   }
 }
@@ -602,12 +603,18 @@ def _typed_fields_from_input_type(
             ref = types_by_name.get(tname or "", {})
             python_type = _SCALAR_TO_PYTHON.get(tname or "", "str")
 
+            enum_values: list[str] = []
             if ref.get("kind") == "INPUT_OBJECT":
                 # Nested input object (not a list) — treat as opaque dict for now
                 python_type = "dict"
             elif ref.get("kind") == "ENUM":
                 # Mark as enum so serializer doesn't quote it
                 python_type = "enum"
+                # Surface the allowed values — without these the tool schema/
+                # description gives the model no way to know what's valid
+                # (e.g. it will guess "COMPLETE" for a TaskStatus field whose
+                # real values are TODO/IN_PROGRESS/BLOCKED/DONE).
+                enum_values = [v.get("name", "") for v in ref.get("enumValues") or [] if v.get("name")]
 
             result.append(
                 {
@@ -617,6 +624,7 @@ def _typed_fields_from_input_type(
                     "description": "",
                     "item_fields": {},
                     "item_required": [],
+                    "enum_values": enum_values,
                 }
             )
 

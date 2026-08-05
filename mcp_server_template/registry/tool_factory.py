@@ -138,12 +138,23 @@ def _item_shape(f: MutableFieldDef) -> str:
     return "{" + ", ".join(parts) + "}"
 
 
+def _type_label(f: MutableFieldDef) -> str:
+    """Type annotation for a field label — enum fields list their actual allowed
+    values (e.g. "enum: TODO|IN_PROGRESS|BLOCKED|DONE") instead of the bare
+    word "enum", which gives the model nothing to work with and produces
+    plausible-but-wrong guesses (e.g. "COMPLETE" for a status field that only
+    accepts DONE)."""
+    if f.python_type == "enum" and f.enum_values:
+        return f"enum: {'|'.join(f.enum_values)}"
+    return f.python_type
+
+
 def _field_label(f: MutableFieldDef) -> str:
     """Short label for a MutableFieldDef listing — e.g. 'name', 'active (bool)', 'checklist: list of {...}'."""
     if f.python_type == "list":
         return f"{f.name}: list of {_item_shape(f)}"
     if f.python_type != "str":
-        return f"{f.name} ({f.python_type})"
+        return f"{f.name} ({_type_label(f)})"
     return f.name
 
 
@@ -237,6 +248,23 @@ MUTATION RULES (all create/update/set tools):
 """.rstrip()
 
 
+def _mutation_selection(defn: EntityDef, include_paths: list[str], fields: list[str]) -> str:
+    """Build the RESPONSE selection for a mutation call.
+
+    Every generated mutation targets a `<Entity>Payload { ok, message, <entity> }`
+    return type (see `_mutation_result()` and demo-schema.graphql's own mutation-
+    payloads section, which calls this shape out as deliberate — one response
+    handler serves every generated tool). `build_selection()` alone returns a
+    selection shaped for the ENTITY type itself (used as-is for `get_*` query
+    tools, which return the entity directly) — applying it unwrapped against a
+    Payload type fails with "Cannot query field 'uid' on type '<Entity>Payload'"
+    since `uid`/etc. live one level down, under the entity field. This wraps it:
+    `{ ok message <snake_singular> <entity selection> }`.
+    """
+    entity_selection = build_selection(defn, include_paths, fields)
+    return f"{{ ok message {defn.snake_singular} {entity_selection} }}"
+
+
 def _mutation_result(result: dict) -> dict:
     """Build the tool's response dict from a mutation's raw GraphQL result.
 
@@ -275,7 +303,7 @@ def _mutation_description(defn: EntityDef, mutation_name: str, input_type: str) 
         lines.append("")
         lines.append("KEYS INSIDE `fields`:")
         for f in defn.typed_mutable_fields:
-            type_label = f.python_type
+            type_label = _type_label(f)
             if f.python_type == "list":
                 type_label = f"list — {_item_shape(f)}"
             req = " (required)" if f.required else ""
@@ -390,7 +418,7 @@ def _create_description(defn: EntityDef, mutation_name: str) -> str:
                 if f.python_type == "list":
                     opt_parts.append(f"{f.name} (list — {_item_shape(f)})")
                 elif f.python_type != "str":
-                    opt_parts.append(f"{f.name} ({f.python_type})")
+                    opt_parts.append(f"{f.name} ({_type_label(f)})")
                 else:
                     opt_parts.append(f.name)
             lines.append(f"  OPTIONAL: {', '.join(opt_parts)}")
@@ -603,7 +631,7 @@ def _register_mutation_tool(mcp: FastMCP, defn: EntityDef, client: GraphQLClient
             if f.python_type == "list":
                 fields_desc_parts.append(f"{f.name}: list of {_item_shape(f)}")
             elif f.python_type != "str":
-                fields_desc_parts.append(f"{f.name} ({f.python_type})")
+                fields_desc_parts.append(f"{f.name} ({_type_label(f)})")
             else:
                 fields_desc_parts.append(f.name)
         fields_desc = (
@@ -621,6 +649,7 @@ def _register_mutation_tool(mcp: FastMCP, defn: EntityDef, client: GraphQLClient
         async def _update_wrapper(**kwargs: Any) -> dict:
             id_val = kwargs[id_field]
             data_obj = _strip_code(kwargs.get("fields") or {}, tool_name)
+            data_obj = _mark_enums(data_obj, typed)  # see _update_typed_flat for why
             input_ = {id_field: id_val, data_field: data_obj}
             t0 = time.monotonic()
             logger.info(
@@ -630,7 +659,7 @@ def _register_mutation_tool(mcp: FastMCP, defn: EntityDef, client: GraphQLClient
                 id_val,
                 list(data_obj.keys()),
             )
-            selection = build_selection(_defn, [], _defaults)
+            selection = _mutation_selection(_defn, [], _defaults)
             mutation = build_mutation(_mut, input_, selection)
             logger.info("tool.query %-30s  %s", tool_name, mutation)
             try:
@@ -682,7 +711,7 @@ def _register_mutation_tool(mcp: FastMCP, defn: EntityDef, client: GraphQLClient
             t0 = time.monotonic()
             logger.info("tool.call  %-30s  items=%d", tool_name, len(collection))
             # For batch operations, always request the collection back with default fields
-            selection = build_selection(_defn, [coll_field], _defaults)
+            selection = _mutation_selection(_defn, [coll_field], _defaults)
             mutation = build_mutation(_mut, input_, selection)
             logger.info("tool.query %-30s  %s", tool_name, mutation)
             try:
@@ -738,9 +767,9 @@ def _register_mutation_tool(mcp: FastMCP, defn: EntityDef, client: GraphQLClient
             )
             if is_create:
                 # Server assigns uids to new children — request them back
-                selection = build_selection(_defn, [coll_field], ["uid"])
+                selection = _mutation_selection(_defn, [coll_field], ["uid"])
             else:
-                selection = build_selection(_defn, [], _defaults)
+                selection = _mutation_selection(_defn, [], _defaults)
             mutation = build_mutation(_mut, input_, selection)
             logger.info("tool.query %-30s  %s", tool_name, mutation)
             try:
@@ -783,9 +812,15 @@ def _register_mutation_tool(mcp: FastMCP, defn: EntityDef, client: GraphQLClient
 
         async def _update_typed_flat(**kwargs: Any) -> dict:
             input_ = _strip_code(kwargs.get("input") or {}, tool_name)
+            # Without this, an enum value (e.g. status: "DONE") gets literal-
+            # serialized as a quoted STRING, which GraphQL rejects for an enum
+            # field ("Enum 'TaskStatus' cannot represent non-enum value").
+            # _create_typed (the sibling create-path branch) already does this;
+            # this update-path branch was missing it.
+            input_ = _mark_enums(input_, typed)
             t0 = time.monotonic()
             logger.info("tool.call  %-30s  input_keys=%s", tool_name, list(input_.keys()))
-            selection = build_selection(_defn, [], _defaults)
+            selection = _mutation_selection(_defn, [], _defaults)
             mutation = build_mutation(_mut, input_, selection)
             logger.info("tool.query %-30s  %s", tool_name, mutation)
             try:
@@ -826,7 +861,7 @@ def _register_mutation_tool(mcp: FastMCP, defn: EntityDef, client: GraphQLClient
             logger.info(
                 "tool.call  %-30s  uid=%s  input_keys=%s", tool_name, uid_, list(input_.keys())
             )
-            selection = build_selection(_defn, [], _defaults)
+            selection = _mutation_selection(_defn, [], _defaults)
             mutation = build_mutation(_mut, input_, selection)
             logger.info("tool.query %-30s  %s", tool_name, mutation)
             try:
@@ -900,7 +935,7 @@ def _register_direct_mutation_tool(mcp: FastMCP, defn: EntityDef, client: GraphQ
             t0 = time.monotonic()
             logger.info("tool.call  %-30s  items=%d", tool_name, len(collection))
             # For batch creates, request the collection back with default fields
-            selection = build_selection(_defn, [coll_field], _defaults)
+            selection = _mutation_selection(_defn, [coll_field], _defaults)
             mutation = build_mutation(_mut, input_, selection)
             logger.info("tool.query %-30s  %s", tool_name, mutation)
             try:
@@ -952,7 +987,7 @@ def _register_direct_mutation_tool(mcp: FastMCP, defn: EntityDef, client: GraphQ
             logger.info(
                 "tool.call  %-30s  %s=%s  items=%d", tool_name, id_field, id_val, len(collection)
             )
-            selection = build_selection(_defn, [coll_field], ["uid"])
+            selection = _mutation_selection(_defn, [coll_field], ["uid"])
             mutation = build_mutation(_mut, input_, selection)
             logger.info("tool.query %-30s  %s", tool_name, mutation)
             try:
@@ -981,7 +1016,7 @@ def _register_direct_mutation_tool(mcp: FastMCP, defn: EntityDef, client: GraphQ
             if f.python_type == "list":
                 input_parts.append(f"{f.name}: list of {_item_shape(f)}")
             elif f.python_type != "str":
-                input_parts.append(f"{f.name} ({f.python_type})")
+                input_parts.append(f"{f.name} ({_type_label(f)})")
             else:
                 input_parts.append(f.name)
         req_names = [f.name for f in required]
@@ -1004,7 +1039,7 @@ def _register_direct_mutation_tool(mcp: FastMCP, defn: EntityDef, client: GraphQ
             args_ = _mark_enums(args_, typed)
             t0 = time.monotonic()
             logger.info("tool.call  %-30s  args=%s", tool_name, list(args_.keys()))
-            selection = build_selection(_defn, [], _defaults)
+            selection = _mutation_selection(_defn, [], _defaults)
             mutation = (
                 build_mutation(_mut, args_, selection)
                 if _has_input_wrapper
@@ -1049,7 +1084,7 @@ def _register_direct_mutation_tool(mcp: FastMCP, defn: EntityDef, client: GraphQ
             args_ = _strip_code(args_, tool_name)
             t0 = time.monotonic()
             logger.info("tool.call  %-30s  args=%s", tool_name, list(args_.keys()))
-            selection = build_selection(_defn, [], _defaults)
+            selection = _mutation_selection(_defn, [], _defaults)
             mutation = (
                 build_mutation(_mut, args_, selection)
                 if _has_input_wrapper

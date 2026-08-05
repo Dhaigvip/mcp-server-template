@@ -37,6 +37,7 @@ def _parse_typed_fields(data: list) -> list[MutableFieldDef]:
                 description   = item.get("description", ""),
                 item_fields   = item.get("item_fields", {}),
                 item_required = item.get("item_required", []),
+                enum_values   = item.get("enum_values", []),
             ))
     return result
 
