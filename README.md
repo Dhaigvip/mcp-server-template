@@ -9,8 +9,9 @@ at a time.
 - **Schema-driven tool generation** — introspect a GraphQL schema and generate
   `get_*` / `create_*` / `update_*` tools automatically, including nested
   relations exposed via dot-notation include paths.
-- **Field awareness** — an entity map you can inject into a system prompt so
-  agents know what fields exist *before* calling tools.
+- **Field awareness** — an entity map exposed as a real MCP resource
+  (`resource://entity-map`), so a client can fetch what fields exist
+  *before* calling tools, generated from the same schema the tools are.
 - **Both transports** — stdio (for Claude Desktop, etc.) and HTTP.
 - **Auth strategies** — pluggable interface with static token and OIDC
   implementations included.

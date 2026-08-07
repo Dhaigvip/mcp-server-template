@@ -78,10 +78,16 @@ A production-shaped Model Context Protocol (MCP) server with tools **auto-genera
 
 ### Entity Map
 
-- **File**: `registry/entity_map.py`
-- **Purpose**: Compact summary of all queryable entities + fields for system prompt
-  - Shows agent what fields exist before it calls tools
-  - Prevents fetch-then-refetch pattern (the problem this solves)
+- **File**: `registry/entity_map.py`, exposed as the `resource://entity-map` MCP
+  resource (`server.py`'s `_register_entity_map_resource`)
+- **Purpose**: Compact summary of all queryable entities + fields, generated
+  from the same schema as the tools themselves
+  - A client can fetch this before calling tools, so it knows what fields
+    exist up front — whether that fetched text ends up in a system prompt,
+    a tool description, or somewhere else is up to the client; this server
+    only makes it available, it doesn't inject anything into anyone's prompt
+  - Prevents the fetch-then-refetch pattern (the problem this solves) for
+    any client that actually reads it before calling `get_*` tools
   - Rendered from same normalized schema as tool factory (never drift)
   - Example injection:
     ```

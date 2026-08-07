@@ -44,7 +44,7 @@ from mcp_server_template.config import AppConfig
 from mcp_server_template.graphql.client import GraphQLClient
 from mcp_server_template.graphql.introspection import introspect_from_file
 from mcp_server_template.middleware.http_auth import AuthMiddleware
-from mcp_server_template.registry.entity_map import set_entity_defs
+from mcp_server_template.registry.entity_map import render_entity_map, set_entity_defs
 from mcp_server_template.registry.loader import load_overrides, raw_defs_to_entity_defs
 from mcp_server_template.registry.tool_factory import register_entity_tools
 
@@ -73,6 +73,7 @@ def create_mcp(config: AppConfig) -> FastMCP:
         set_entity_defs(entity_defs)
         for defn in entity_defs.values():
             register_entity_tools(mcp, defn, client)
+        _register_entity_map_resource(mcp)
         logger.info("Schema file: registered tools for %d entities", len(entity_defs))
     else:
         logger.warning(
@@ -129,6 +130,36 @@ async def _build_auth_provider(config: AppConfig) -> AuthProvider | None:
 # Auth is HTTP-only (see build_asgi_app/AuthMiddleware above) — it wraps the
 # ASGI app itself, not this FastMCP tool-call chain, since it needs the raw
 # HTTP request headers. stdio has no equivalent (trusted local subprocess).
+
+
+def _register_entity_map_resource(mcp: FastMCP) -> None:
+    """Expose the entity map as a fetchable MCP resource, not just an internal
+    render function. `render_entity_map()` (registry/entity_map.py) has
+    existed since Task 8 but was never wired to anything a client could
+    actually reach — this is that wiring. A resource, not a tool: it's
+    static reference context for a client to read before calling tools, not
+    an action the agent decides to invoke mid-task.
+
+    Content is rendered fresh on every fetch, from whatever EntityDefs are
+    current (see entity_map.py's docstring on why it's lazy) — cheap enough
+    that caching it isn't worth the staleness risk.
+    """
+
+    @mcp.resource(
+        "resource://entity-map",
+        name="entity-map",
+        description=(
+            "Compact summary of every queryable entity and its fields "
+            "(scalar + one level of nested relations), generated from the "
+            "same schema as the tools themselves. Read this before calling "
+            "get_* tools so you know what fields are available up front, "
+            "instead of fetching defaults and re-fetching once you learn "
+            "what you actually needed."
+        ),
+        mime_type="text/plain",
+    )
+    def entity_map_resource() -> str:
+        return render_entity_map()
 
 
 def _register_middleware(mcp: FastMCP) -> None:
